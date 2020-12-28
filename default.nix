@@ -135,7 +135,7 @@ rec {
     in assert (builtins.all (checkType types) elems);
       { type = "timeList"; values = elems; };
 
-  job = time: user: command:
+  systemJob = time: user: command:
     assert (checkTimeType time);
     assert (checkType lib.types.str user);
     let
@@ -149,6 +149,20 @@ rec {
       strippedCommand = stripEnd command;
     in assert (checkType strWithNoNewlines strippedCommand);
     "${renderTime time} ${user} ${strippedCommand}";
+
+  userJob = time: command:
+    assert (checkTimeType time);
+    let
+      stripEnd = str:
+        let removeGroup = group: if builtins.isList group then "" else group;
+        in lib.concatMapStrings removeGroup (builtins.split "\n+$" str);
+      noNewlines = str: !lib.strings.hasInfix "\n" str;
+      strWithNoNewlines = lib.types.addCheck lib.types.str noNewlines // {
+        description = "string with no newlines";
+      };
+      strippedCommand = stripEnd command;
+    in assert (checkType strWithNoNewlines strippedCommand);
+    "${renderTime time} ${strippedCommand}";
 
   reboot = { type = "specialTime"; value = "@reboot"; };
 
