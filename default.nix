@@ -1,6 +1,10 @@
 { lib }:
 
 let
+  substitute = pat: newStr: str:
+    let replaceGroup = group: if builtins.isList group then newStr else group;
+    in lib.concatMapStrings replaceGroup (builtins.split pat str);
+
   checkType = type: value:
     lib.asserts.assertMsg (type.check value) "expected ${type.description}";
 
@@ -42,6 +46,7 @@ let
 
   timeStep_t = object {
     type = litString "timeStep";
+    base = lib.types.either timeEvery_t timeRange_t;
     increment = lib.types.ints.positive;
   };
 
@@ -50,7 +55,11 @@ let
     value = lib.types.ints.unsigned;
   };
 
-  timePart_t = lib.types.nullOr (lib.types.oneOf [
+  timeEvery_t = object {
+    type = litString "timeEvery";
+  };
+
+  timePart_t = lib.types.oneOf [
     # "0", "1", etc.
     timeAt_t
     # "0-1", etc.
@@ -59,7 +68,9 @@ let
     timeList_t
     # "*/5"
     timeStep_t
-  ]);
+    # "*"
+    timeEvery_t
+  ];
 
   specialTime_t = object {
     type = litString "specialTime";
@@ -102,25 +113,51 @@ let
       "${toString part.start}-${toString part.end}"
     else if timeList_t.check part then
       lib.strings.concatMapStringsSep " " renderTimePart part.values
-    else if part == null then
+    else if timeEvery_t.check part then
       "*"
     else if timeStep_t.check part then
-      "*/${toString part.increment}"
+      "${renderTimePart part.base}/${toString part.increment}"
     else builtins.throw "unrecognized time part type";
 
   renderSpecialTime = t: t.value;
+
+  every = { type = "timeEvery"; };
 
   renderTime = time:
     assert (checkTimeType time);
     if specialTime_t.check time then
       renderSpecialTime time
     else lib.strings.concatMapStringsSep " " renderTimePart [
-      (time.minute or null)
-      (time.hour or null)
-      (time.dayOfMonth or null)
-      (time.month or null)
-      (time.dayOfWeek or null)
+      (time.minute or every)
+      (time.hour or every)
+      (time.dayOfMonth or every)
+      (time.month or every)
+      (time.dayOfWeek or every)
     ];
+
+  job = { time, user, ... }@args:
+    assert (checkTimeType time);
+    assert (checkType (lib.types.nullOr lib.types.str) user);
+    assert (args ? command) != (args ? commandFile);
+    let
+      finalCommand =
+        if args ? command then
+          let
+            stripEnd = substitute "\n+$" "";
+            noNewlines = str: !lib.strings.hasInfix "\n" str;
+            strWithNoNewlines = lib.types.addCheck lib.types.str noNewlines // {
+              description = "string with no newlines";
+            };
+            strippedCommand = lib.strings.escape ["%"] (stripEnd args.command);
+          in assert (checkType strWithNoNewlines strippedCommand);
+          strippedCommand
+        else
+          assert (checkType lib.types.path args.commandFile);
+          ''exec "${args.commandFile}"'';
+      input = lib.strings.optionalString (args ? stdin)
+        ("%" + substitute "\n" "%" args.stdin);
+    in "${renderTime time} ${user} ${finalCommand}${input}";
+
 in
 
 rec {
@@ -128,9 +165,12 @@ rec {
     assert (checkType lib.types.ints.unsigned num);
     { type = "timeAt"; value = num; };
 
-  every = inc:
-    assert (checkType lib.types.ints.positive inc);
-    { type = "timeStep"; increment = inc; };
+  inherit every;
+
+  step = base: increment:
+    assert (checkType (lib.types.either timeEvery_t timeRange_t) base);
+    assert (checkType lib.types.ints.positive increment);
+    { type = "timeStep"; inherit base increment; };
 
   range = start: end:
     assert (checkType lib.types.ints.unsigned start);
@@ -138,40 +178,17 @@ rec {
     assert start <= end;
     { type = "timeRange"; inherit start end; };
 
-  list = elems:
+  list = values:
     let
       types = lib.types.either lib.types.ints.unsigned timeRange_t;
-    in assert (builtins.all (checkType types) elems);
-      { type = "timeList"; values = elems; };
+    in assert (builtins.all (checkType types) values);
+      { type = "timeList"; inherit values; };
 
-  systemJob = time: user: command:
-    assert (checkTimeType time);
+  systemJob = { user, ... }@args:
     assert (checkType lib.types.str user);
-    let
-      stripEnd = str:
-        let removeGroup = group: if builtins.isList group then "" else group;
-        in lib.concatMapStrings removeGroup (builtins.split "\n+$" str);
-      noNewlines = str: !lib.strings.hasInfix "\n" str;
-      strWithNoNewlines = lib.types.addCheck lib.types.str noNewlines // {
-        description = "string with no newlines";
-      };
-      strippedCommand = stripEnd command;
-    in assert (checkType strWithNoNewlines strippedCommand);
-    "${renderTime time} ${user} ${strippedCommand}";
+    job args;
 
-  userJob = time: command:
-    assert (checkTimeType time);
-    let
-      stripEnd = str:
-        let removeGroup = group: if builtins.isList group then "" else group;
-        in lib.concatMapStrings removeGroup (builtins.split "\n+$" str);
-      noNewlines = str: !lib.strings.hasInfix "\n" str;
-      strWithNoNewlines = lib.types.addCheck lib.types.str noNewlines // {
-        description = "string with no newlines";
-      };
-      strippedCommand = stripEnd command;
-    in assert (checkType strWithNoNewlines strippedCommand);
-    "${renderTime time} ${strippedCommand}";
+  userJob = args: job // { user = null; };
 
   reboot = { type = "specialTime"; value = "@reboot"; };
 
