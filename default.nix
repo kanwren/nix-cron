@@ -46,7 +46,7 @@ let
 
   timeStep_t = object {
     type = litString "timeStep";
-    base = lib.types.either timeEvery_t timeRange_t;
+    base = lib.types.either timeAll_t timeRange_t;
     increment = lib.types.ints.positive;
   };
 
@@ -55,8 +55,8 @@ let
     value = lib.types.ints.unsigned;
   };
 
-  timeEvery_t = object {
-    type = litString "timeEvery";
+  timeAll_t = object {
+    type = litString "timeAll";
   };
 
   timePart_t = lib.types.oneOf [
@@ -69,7 +69,7 @@ let
     # "*/5"
     timeStep_t
     # "*"
-    timeEvery_t
+    timeAll_t
   ];
 
   specialTime_t = object {
@@ -113,7 +113,7 @@ let
       "${toString part.start}-${toString part.end}"
     else if timeList_t.check part then
       lib.strings.concatMapStringsSep " " renderTimePart part.values
-    else if timeEvery_t.check part then
+    else if timeAll_t.check part then
       "*"
     else if timeStep_t.check part then
       "${renderTimePart part.base}/${toString part.increment}"
@@ -121,18 +121,18 @@ let
 
   renderSpecialTime = t: t.value;
 
-  every = { type = "timeEvery"; };
+  all = { type = "timeAll"; };
 
   renderTime = time:
     assert (checkTimeType time);
     if specialTime_t.check time then
       renderSpecialTime time
     else lib.strings.concatMapStringsSep " " renderTimePart [
-      (time.minute or every)
-      (time.hour or every)
-      (time.dayOfMonth or every)
-      (time.month or every)
-      (time.dayOfWeek or every)
+      (time.minute or all)
+      (time.hour or all)
+      (time.dayOfMonth or all)
+      (time.month or all)
+      (time.dayOfWeek or all)
     ];
 
   job = { time, user, ... }@args:
@@ -165,10 +165,12 @@ rec {
     assert (checkType lib.types.ints.unsigned num);
     { type = "timeAt"; value = num; };
 
-  inherit every;
+  inherit all;
+
+  every = step all;
 
   step = base: increment:
-    assert (checkType (lib.types.either timeEvery_t timeRange_t) base);
+    assert (checkType (lib.types.either timeAll_t timeRange_t) base);
     assert (checkType lib.types.ints.positive increment);
     { type = "timeStep"; inherit base increment; };
 
