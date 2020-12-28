@@ -45,9 +45,14 @@ let
     increment = lib.types.ints.positive;
   };
 
+  timeAt_t = object {
+    type = litString "timeAt";
+    value = lib.types.ints.unsigned;
+  };
+
   timePart_t = lib.types.nullOr (lib.types.oneOf [
     # "0", "1", etc.
-    lib.types.ints.unsigned
+    timeAt_t
     # "0-1", etc.
     timeRange_t
     # "0,1,2", "0-8,9-12", etc.
@@ -91,8 +96,8 @@ let
 
   renderTimePart = part:
     assert (checkType timePart_t part);
-    if lib.types.ints.unsigned.check part then
-      toString part
+    if timeAt_t.check part then
+      toString part.value
     else if timeRange_t.check part then
       "${toString part.start}-${toString part.end}"
     else if timeList_t.check part then
@@ -119,6 +124,10 @@ let
 in
 
 rec {
+  at = num:
+    assert (checkType lib.types.ints.unsigned num);
+    { type = "timeAt"; value = num; };
+
   every = inc:
     assert (checkType lib.types.ints.positive inc);
     { type = "timeStep"; increment = inc; };
