@@ -138,8 +138,17 @@ rec {
   job = time: user: command:
     assert (checkTimeType time);
     assert (checkType lib.types.str user);
-    assert (checkType lib.types.str command);
-    "${renderTime time} ${user} ${command}";
+    let
+      stripEnd = str:
+        let removeGroup = group: if builtins.isList group then "" else group;
+        in lib.concatMapStrings removeGroup (builtins.split "\n+$" str);
+      noNewlines = str: !lib.strings.hasInfix "\n" str;
+      strWithNoNewlines = lib.types.addCheck lib.types.str noNewlines // {
+        description = "string with no newlines";
+      };
+      strippedCommand = stripEnd command;
+    in assert (checkType strWithNoNewlines strippedCommand);
+    "${renderTime time} ${user} ${strippedCommand}";
 
   reboot = { type = "specialTime"; value = "@reboot"; };
 
