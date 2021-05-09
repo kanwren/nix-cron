@@ -101,8 +101,10 @@ let
       lib.asserts.assertMsg (extraAttrs == {}) "unexpected keys: ${toString (builtins.attrNames extraAttrs)}";
 
   checkTimeType = v:
-    if !specialTime_t.check v
-    then checkPartialObjectType timeSpecifier_t v
+    if builtins.isString v then
+      v
+    else if !specialTime_t.check v then
+      checkPartialObjectType timeSpecifier_t v
     else checkType specialTime_t v;
 
   renderTimePart = part:
@@ -125,7 +127,9 @@ let
 
   renderTime = time:
     assert (checkTimeType time);
-    if specialTime_t.check time then
+    if builtins.isString time then
+      time
+    else if specialTime_t.check time then
       renderSpecialTime time
     else lib.strings.concatMapStringsSep " " renderTimePart [
       (time.minute or all)
@@ -161,6 +165,12 @@ let
 in
 
 rec {
+  inherit renderTime;
+
+  types = {
+    inherit time_t;
+  };
+
   at = num:
     assert (checkType lib.types.ints.unsigned num);
     { type = "timeAt"; value = num; };
